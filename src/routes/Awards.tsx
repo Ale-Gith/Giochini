@@ -2,12 +2,12 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import styles from './Awards.module.css'
 import { CHARACTERS, CHARACTERS_BY_ID } from '../data/characters'
-import { MOCK_CATALOG } from '../data/mockCatalog'
 import { MOCK_EVENTS } from '../data/mockEvents'
 import { Avatar } from '../components/Avatar'
 import { eventsStore, useLocalEvents } from '../lib/eventsStore'
+import { useCatalog } from '../lib/catalogStore'
 import type { AppSession } from '../App'
-import type { CatalogItem, CharacterId, GameEvent } from '../types'
+import type { CatalogItem, CharacterId } from '../types'
 
 interface Props {
   session: AppSession
@@ -20,18 +20,19 @@ export default function Awards({ session }: Props) {
   const [chosen, setChosen] = useState<CatalogItem | null>(null)
   const [chosenPlayer, setChosenPlayer] = useState<CharacterId | null>(null)
   const localEvents = useLocalEvents()
+  const catalog = useCatalog()
   const navigate = useNavigate()
 
   const allEvents = [...MOCK_EVENTS, ...localEvents]
   const feed = [...allEvents].sort((a, b) => b.timestamp - a.timestamp)
 
   const stats = useMemo(() => ({
-    total: MOCK_CATALOG.length,
-    premi: MOCK_CATALOG.filter(c => c.points > 0).length,
-    penalita: MOCK_CATALOG.filter(c => c.points < 0).length,
-  }), [])
+    total: catalog.length,
+    premi: catalog.filter(c => c.points > 0).length,
+    penalita: catalog.filter(c => c.points < 0).length,
+  }), [catalog])
 
-  const filtered = MOCK_CATALOG.filter(item => {
+  const filtered = catalog.filter(item => {
     if (filter === 'premi') return item.points > 0
     if (filter === 'penalita') return item.points < 0
     return true
@@ -45,16 +46,14 @@ export default function Awards({ session }: Props) {
 
   function confirmAssign() {
     if (!chosen || !chosenPlayer) return
-    const newEvent: GameEvent = {
-      id: `local-${Date.now()}`,
+    void eventsStore.add({
       playerId: chosenPlayer,
       catalogItemId: chosen.id,
       description: chosen.description,
       points: chosen.points,
       assignedBy: session.email,
       timestamp: Date.now(),
-    }
-    eventsStore.add(newEvent)
+    }).catch(err => console.error('Errore salvataggio evento:', err))
     setChosen(null)
     setChosenPlayer(null)
   }
@@ -108,30 +107,37 @@ export default function Awards({ session }: Props) {
               {session.isOwner ? 'Click su una voce per assegnarla' : 'Solo lettura · spettatori a bordo'}
             </span>
           </div>
-          <div className={styles.grid}>
-            {filtered.map(item => {
-              const pos = item.points > 0
-              return (
-                <button
-                  key={item.id}
-                  className={styles.card}
-                  onClick={() => openAssign(item)}
-                  disabled={!session.isOwner}
-                  style={{ cursor: session.isOwner ? 'pointer' : 'default' }}
-                >
-                  <div className={styles.cardTop}>
-                    <span className={`${styles.cardPoints} ${pos ? styles.cardPointsPositive : styles.cardPointsNegative}`}>
-                      {pos ? `+${item.points}` : item.points}
-                    </span>
-                    <span className={`${styles.cardKind} ${pos ? styles.cardKindPositive : styles.cardKindNegative}`}>
-                      {pos ? 'Onore' : 'Castigo'}
-                    </span>
-                  </div>
-                  <div className={styles.cardText}>{item.description}</div>
-                </button>
-              )
-            })}
-          </div>
+          {catalog.length === 0 ? (
+            <div className={styles.empty}>
+              Manifesto vuoto. Il capitano deve caricare un rotolo (excel) dalla
+              Cabina prima che le voci compaiano qui.
+            </div>
+          ) : (
+            <div className={styles.grid}>
+              {filtered.map(item => {
+                const pos = item.points > 0
+                return (
+                  <button
+                    key={item.id}
+                    className={styles.card}
+                    onClick={() => openAssign(item)}
+                    disabled={!session.isOwner}
+                    style={{ cursor: session.isOwner ? 'pointer' : 'default' }}
+                  >
+                    <div className={styles.cardTop}>
+                      <span className={`${styles.cardPoints} ${pos ? styles.cardPointsPositive : styles.cardPointsNegative}`}>
+                        {pos ? `+${item.points}` : item.points}
+                      </span>
+                      <span className={`${styles.cardKind} ${pos ? styles.cardKindPositive : styles.cardKindNegative}`}>
+                        {pos ? 'Onore' : 'Castigo'}
+                      </span>
+                    </div>
+                    <div className={styles.cardText}>{item.description}</div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </section>
 
         <div className={styles.ornament} aria-hidden>✦ · ✦ · ✦</div>

@@ -1,13 +1,23 @@
 import { useEffect, useState } from 'react'
-import type { GameEvent } from '../types'
+import {
+  addDoc,
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  Timestamp,
+  type Firestore,
+} from 'firebase/firestore'
+import { getDb } from './firebase'
+import type { CharacterId, GameEvent } from '../types'
 
-// Store condiviso di eventi "locali" (assegnati durante questa sessione).
-// Persistito in localStorage. Subscribers notificati ad ogni cambio.
-// Quando Firebase sarà collegato, lo store passerà a Firestore.
+// Store eventi: legge da Firestore in real-time se disponibile, altrimenti localStorage.
+// Sottoscrittori React notificati ad ogni cambio.
 
 const LS_KEY = 'campioni.localEvents'
+const COL = 'events'
 
-function loadFromLS(): GameEvent[] {
+function loadLocal(): GameEvent[] {
   try {
     const raw = localStorage.getItem(LS_KEY)
     if (!raw) return []
@@ -18,34 +28,90 @@ function loadFromLS(): GameEvent[] {
   }
 }
 
-function saveToLS(events: GameEvent[]): void {
+function saveLocal(events: GameEvent[]): void {
   localStorage.setItem(LS_KEY, JSON.stringify(events))
 }
 
+interface FirestoreEventDoc {
+  playerId: CharacterId
+  catalogItemId: string | null
+  description: string
+  points: number
+  assignedBy: string
+  timestamp: Timestamp
+}
+
 class EventsStore {
-  private events: GameEvent[] = loadFromLS()
+  private events: GameEvent[] = loadLocal()
   private subs = new Set<() => void>()
+  private db: Firestore | null = null
+  private firestoreReady = false
+
+  constructor() {
+    void this.initFirestore()
+  }
+
+  private async initFirestore() {
+    const db = await getDb()
+    if (!db) {
+      console.warn('[eventsStore] Firestore non disponibile — modalità localStorage')
+      return
+    }
+    this.db = db
+
+    const q = query(collection(db, COL), orderBy('timestamp', 'asc'))
+    onSnapshot(
+      q,
+      snapshot => {
+        const events: GameEvent[] = snapshot.docs.map(doc => {
+          const data = doc.data() as FirestoreEventDoc
+          return {
+            id: doc.id,
+            playerId: data.playerId,
+            catalogItemId: data.catalogItemId,
+            description: data.description,
+            points: data.points,
+            assignedBy: data.assignedBy,
+            timestamp: data.timestamp.toMillis(),
+          }
+        })
+        this.events = events
+        saveLocal(events)
+        this.firestoreReady = true
+        this.notify()
+      },
+      err => {
+        console.warn('[eventsStore] onSnapshot error:', err)
+      },
+    )
+  }
 
   getAll(): GameEvent[] {
     return this.events
   }
 
-  add(event: GameEvent): void {
-    this.events = [...this.events, event]
-    saveToLS(this.events)
-    this.notify()
+  isOnline(): boolean {
+    return this.firestoreReady
   }
 
-  remove(id: string): void {
-    this.events = this.events.filter(e => e.id !== id)
-    saveToLS(this.events)
-    this.notify()
-  }
-
-  clear(): void {
-    this.events = []
-    saveToLS(this.events)
-    this.notify()
+  async add(event: Omit<GameEvent, 'id'>): Promise<void> {
+    if (this.db) {
+      // Scrivi su Firestore. Lo snapshot si aggiornerà da solo.
+      await addDoc(collection(this.db, COL), {
+        playerId: event.playerId,
+        catalogItemId: event.catalogItemId,
+        description: event.description,
+        points: event.points,
+        assignedBy: event.assignedBy,
+        timestamp: Timestamp.fromMillis(event.timestamp),
+      })
+    } else {
+      // Fallback offline
+      const local: GameEvent = { ...event, id: `local-${Date.now()}` }
+      this.events = [...this.events, local]
+      saveLocal(this.events)
+      this.notify()
+    }
   }
 
   subscribe(fn: () => void): () => void {

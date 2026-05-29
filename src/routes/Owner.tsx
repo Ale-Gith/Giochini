@@ -5,6 +5,7 @@ import { CHARACTERS } from '../data/characters'
 import allowlistData from '../data/allowlist.json'
 import { Avatar } from '../components/Avatar'
 import { normalizeEmail } from '../lib/auth'
+import { catalogStore, useCatalog } from '../lib/catalogStore'
 import type { CatalogItem } from '../types'
 
 interface ParsedRow {
@@ -19,7 +20,10 @@ export default function Owner() {
   const [fileName, setFileName] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [savedCount, setSavedCount] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const currentCatalog = useCatalog()
 
   function handleFile(file: File | undefined) {
     if (!file) return
@@ -54,17 +58,23 @@ export default function Owner() {
   const validRows = useMemo(() => parsed?.filter(r => r.valid) ?? [], [parsed])
   const invalidRows = useMemo(() => parsed?.filter(r => !r.valid) ?? [], [parsed])
 
-  function save() {
-    // Per ora "salva" in localStorage. Quando Firebase è collegato,
-    // questa funzione scriverà su Firestore (collezione `catalog`).
-    const items: CatalogItem[] = validRows.map((r, i) => ({
-      id: `upload-${Date.now()}-${i}`,
-      description: r.description,
-      points: r.points,
-      createdAt: Date.now(),
-    }))
-    localStorage.setItem('campioni.catalogDraft', JSON.stringify(items))
-    setSavedCount(items.length)
+  async function save() {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const newItems: Omit<CatalogItem, 'id'>[] = validRows.map(r => ({
+        description: r.description,
+        points: r.points,
+        createdAt: Date.now(),
+      }))
+      await catalogStore.replace(newItems)
+      setSavedCount(newItems.length)
+    } catch (err) {
+      console.error('[Owner] save failed:', err)
+      setSaveError((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   function reset() {
@@ -105,7 +115,11 @@ export default function Owner() {
         <section className={styles.section}>
           <div className={styles.sectionHead}>
             <h2 className={styles.sectionTitle}>Carica il manifesto</h2>
-            <span className={styles.sectionMeta}>.xlsx · .xls · .csv</span>
+            <span className={styles.sectionMeta}>
+              {currentCatalog.length > 0
+                ? `${currentCatalog.length} voci attualmente sigillate · .xlsx · .xls · .csv`
+                : '.xlsx · .xls · .csv'}
+            </span>
           </div>
 
           <label
@@ -180,16 +194,27 @@ export default function Owner() {
                   type="button"
                   className={`${styles.btn} ${styles.btnPrimary}`}
                   onClick={save}
-                  disabled={validRows.length === 0}
+                  disabled={validRows.length === 0 || saving}
                 >
-                  {savedCount !== null ? `✓ ${savedCount} voci in cassaforte` : `Sigilla ${validRows.length} voci`}
+                  {saving
+                    ? 'Sigillo in corso…'
+                    : savedCount !== null
+                      ? `✓ ${savedCount} voci in cassaforte`
+                      : `Sigilla ${validRows.length} voci`}
                 </button>
               </div>
               {savedCount !== null && (
                 <div className={styles.requirements} style={{ marginTop: '1rem' }}>
-                  Salvato in <code>localStorage</code> in modalità anteprima. Quando Firebase
-                  sarà collegato queste voci finiranno nella collezione <code>catalog</code>
-                  e saranno disponibili a tutta la ciurma.
+                  Catalogo salvato su Firestore. Tutta la ciurma lo vede in tempo reale —
+                  ora la voce è disponibile nel menu a tendina di "Annota" su Il Bottino.
+                </div>
+              )}
+              {saveError && (
+                <div className={styles.requirements} style={{
+                  marginTop: '1rem',
+                  borderLeftColor: 'var(--terracotta)',
+                }}>
+                  <strong>Errore</strong> · {saveError}
                 </div>
               )}
             </div>

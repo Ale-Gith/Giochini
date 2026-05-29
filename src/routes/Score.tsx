@@ -7,20 +7,18 @@ import { buildSeries, getLastDelta, getRanking } from '../lib/scoring'
 import { Avatar } from '../components/Avatar'
 import { TrendChart } from '../components/TrendChart'
 import { eventsStore, useLocalEvents } from '../lib/eventsStore'
+import { useCatalog } from '../lib/catalogStore'
 import type { AppSession } from '../App'
-import type { CatalogItem, CharacterId, GameEvent } from '../types'
+import type { CharacterId } from '../types'
 
 interface Props {
   session: AppSession
 }
 
-// Manifesto delle bravate — viene popolato dall'excel caricato dall'owner.
-// Per ora vuoto: quando Firebase è collegato leggerà da Firestore.
-const CATALOG: CatalogItem[] = []
-
 export default function Score({ session }: Props) {
   const navigate = useNavigate()
   const localEvents = useLocalEvents()
+  const catalog = useCatalog()
   const [modalOpen, setModalOpen] = useState(false)
   const [draftPlayer, setDraftPlayer] = useState<CharacterId | null>(null)
   const [draftCatalogId, setDraftCatalogId] = useState<string>('')
@@ -49,18 +47,16 @@ export default function Score({ session }: Props) {
   function handleSave(e: FormEvent) {
     e.preventDefault()
     if (!draftPlayer || !draftCatalogId) return
-    const item = CATALOG.find(c => c.id === draftCatalogId)
+    const item = catalog.find(c => c.id === draftCatalogId)
     if (!item) return
-    const ev: GameEvent = {
-      id: `local-${Date.now()}`,
+    void eventsStore.add({
       playerId: draftPlayer,
       catalogItemId: item.id,
       description: item.description,
       points: item.points,
       assignedBy: session.email,
       timestamp: Date.now(),
-    }
-    eventsStore.add(ev)
+    }).catch(err => console.error('Errore salvataggio evento:', err))
     closeModal()
   }
 
@@ -205,14 +201,14 @@ export default function Score({ session }: Props) {
                   className={styles.select}
                   value={draftCatalogId}
                   onChange={e => setDraftCatalogId(e.target.value)}
-                  disabled={CATALOG.length === 0}
+                  disabled={catalog.length === 0}
                 >
                   <option value="">
-                    {CATALOG.length === 0
+                    {catalog.length === 0
                       ? '— Manifesto vuoto · carica un excel dalla Cabina —'
                       : '— Seleziona una voce dal manifesto —'}
                   </option>
-                  {CATALOG.map(item => (
+                  {catalog.map(item => (
                     <option key={item.id} value={item.id}>
                       {item.points > 0 ? `+${item.points}` : item.points} · {item.description}
                     </option>
@@ -220,7 +216,7 @@ export default function Score({ session }: Props) {
                 </select>
                 <span className={styles.selectArrow} aria-hidden>▾</span>
               </div>
-              {CATALOG.length === 0 && (
+              {catalog.length === 0 && (
                 <p className={styles.selectHint}>
                   Le voci compariranno qui quando il capitano carica il rotolo (excel) dalla Cabina.
                 </p>
