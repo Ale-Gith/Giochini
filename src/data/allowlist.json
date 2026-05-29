@@ -1,0 +1,12 @@
+{
+  "_comment": "Allowlist: SOLO queste email possono accedere al sito. Mappa email → characterId. Case-insensitive (normalizzata in lowercase).",
+  "mapping": {
+    "franceschi.ale4@gmail.com": "pertega",
+    "daniele.detodaro@gmail.com": "bronto",
+    "lucamajerna04@gmail.com": "maje",
+    "mziliotto04@gmail.com": "forcio",
+    "giobotta04@gmail.com": "grosso",
+    "dennispaini04@gmail.com": "denisio",
+    "andrea.romeo.andrea@gmail.com": "colosseo"
+  }
+}
